@@ -16,6 +16,8 @@ struct Score {
     start_time: Instant,
     assertions: u32,
     wrong: u32,
+    current_sequence: u32,
+    bigger_sequence: u32,
 }
 
 impl Score {
@@ -24,6 +26,8 @@ impl Score {
             start_time: Instant::now(),
             assertions: 0,
             wrong: 0,
+            current_sequence: 0,
+            bigger_sequence: 0,
         }
     }
 
@@ -33,7 +37,13 @@ impl Score {
 
     fn right(&mut self) {
         self.assertions += 1;
+        self.current_sequence += 1;
+        self.bigger_sequence = self.bigger_sequence.max(self.current_sequence);
     }
+}
+
+struct GameConfig {
+    camel_case: bool,
 }
 
 struct Game {
@@ -43,17 +53,19 @@ struct Game {
     index: usize,
     score: Score,
     audio: Audio,
+    config: GameConfig,
 }
 
 impl Game {
-    fn new(stdin: io::Stdin, stdout: io::Stdout) -> Game {
+    fn new(stdin: io::Stdin, stdout: io::Stdout, config: GameConfig) -> Game {
         Game {
-            stdout: stdout,
-            stdin: stdin,
+            stdout,
+            stdin,
             text: String::from(""),
             index: 0,
             score: Score::new(),
             audio: Audio::new(),
+            config,
         }
     }
 
@@ -84,10 +96,18 @@ impl Game {
                         break;
                     }
 
-                    if event.code
-                        == crossterm::event::KeyCode::Char(
-                            self.text.chars().nth(self.index).unwrap(),
-                        )
+                    let current_char = self.text.chars().nth(self.index).unwrap();
+
+                    if event.code == crossterm::event::KeyCode::Char(current_char)
+                        || (!self.config.camel_case
+                            && event.code
+                                == crossterm::event::KeyCode::Char(
+                                    current_char.to_ascii_lowercase(),
+                                )
+                            || event.code
+                                == crossterm::event::KeyCode::Char(
+                                    current_char.to_ascii_uppercase(),
+                                ))
                     {
                         self.index += 1;
                         self.score.right();
@@ -115,18 +135,28 @@ impl Game {
 
         let mut i = 0;
         for c in self.text.chars() {
-            queue!(self.stdout, SetBackgroundColor(Color::Black))?;
-            let curr_style = if i < self.index {
-                style::PrintStyledContent(c.green())
+            if i < self.index {
+                queue!(
+                    self.stdout,
+                    cursor::MoveTo(x, y),
+                    style::PrintStyledContent(c.green())
+                )?;
             } else if i == self.index {
-                queue!(self.stdout, SetBackgroundColor(Color::DarkYellow))?;
-                style::PrintStyledContent(c.blue())
+                queue!(
+                    self.stdout,
+                    cursor::MoveTo(x, y),
+                    SetBackgroundColor(Color::DarkYellow),
+                    style::PrintStyledContent(c.blue()),
+                    SetBackgroundColor(Color::Black),
+                )?;
             } else {
-                queue!(self.stdout, SetBackgroundColor(Color::Black))?;
-                style::PrintStyledContent(c.red())
-            };
+                queue!(
+                    self.stdout,
+                    cursor::MoveTo(x, y),
+                    style::PrintStyledContent(c.red())
+                )?;
+            }
 
-            queue!(self.stdout, cursor::MoveTo(x, y), curr_style)?;
             x += 1;
             if x > 130 {
                 x = 5;
@@ -194,6 +224,18 @@ impl Game {
             cursor::MoveTo(5, 10),
             style::PrintStyledContent(format!("Per minute: {:.2}", per_seconds * 60.).green())
         )?;
+        queue!(
+            self.stdout,
+            cursor::MoveTo(5, 11),
+            style::PrintStyledContent(
+                format!("Bigger sequence: {}", self.score.bigger_sequence).green()
+            )
+        )?;
+        queue!(
+            self.stdout,
+            cursor::MoveTo(5, 12),
+            style::PrintStyledContent("\n\n\n".green())
+        )?;
         self.stdout.flush()?;
         Ok(())
     }
@@ -210,7 +252,7 @@ fn main() -> Result<()> {
     enable_raw_mode()?;
     let stdout = io::stdout();
     let stdin = io::stdin();
-    let mut game = Game::new(stdin, stdout);
+    let mut game = Game::new(stdin, stdout, GameConfig { camel_case: false });
     game.start()?;
     game.score()?;
     disable_raw_mode()?;
