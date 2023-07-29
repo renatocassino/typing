@@ -9,10 +9,11 @@ use crossterm::{
     Result,
 };
 use rusty_audio::Audio;
+use std::io::{self, stdout, Write};
+use std::time::Instant;
 
 struct Score {
-    score: u32,
-    time: u32,
+    start_time: Instant,
     assertions: u32,
     wrong: u32,
 }
@@ -20,8 +21,7 @@ struct Score {
 impl Score {
     fn new() -> Score {
         Score {
-            score: 0,
-            time: 0,
+            start_time: Instant::now(),
             assertions: 0,
             wrong: 0,
         }
@@ -94,7 +94,7 @@ impl Game {
                         self.audio.play("press");
                     } else {
                         self.score.wrong();
-                        self.audio.play("error");
+                        self.audio.play("wrong");
                     }
 
                     if self.index == self.text.len() {
@@ -144,13 +144,18 @@ impl Game {
         let text = std::fs::read_to_string("text.txt")?;
         self.text = text;
         self.audio.add("press", "audio/press.mp3");
-        self.audio.add("error", "audio/error.mp3");
+        self.audio.add("wrong", "audio/wrong.mp3");
 
         Ok(())
     }
 
     fn score(&mut self) -> Result<()> {
+        let end_time = Instant::now();
+        let duration = end_time.duration_since(self.score.start_time);
+        let per_seconds = (self.score.assertions as f64) / duration.as_secs_f64();
+
         execute!(self.stdout, terminal::Clear(terminal::ClearType::All))?;
+
         queue!(
             self.stdout,
             cursor::MoveTo(5, 5),
@@ -182,7 +187,12 @@ impl Game {
         queue!(
             self.stdout,
             cursor::MoveTo(5, 9),
-            style::PrintStyledContent(format!("Score: {}", self.score.score).green())
+            style::PrintStyledContent(format!("Per seconds: {:.2}", per_seconds).green())
+        )?;
+        queue!(
+            self.stdout,
+            cursor::MoveTo(5, 10),
+            style::PrintStyledContent(format!("Per minute: {:.2}", per_seconds * 60.).green())
         )?;
         self.stdout.flush()?;
         Ok(())
@@ -196,18 +206,12 @@ impl Game {
     }
 }
 
-use std::io::{self, stdout, Write};
-
 fn main() -> Result<()> {
-    let mut audio = Audio::new();
-    audio.add("press", "/home/tacnoman/projects/typing/audio/error.mp3");
-    audio.play("press");
-    return Ok(());
     enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    let mut stdin = io::stdin();
+    let stdout = io::stdout();
+    let stdin = io::stdin();
     let mut game = Game::new(stdin, stdout);
-    game.start();
+    game.start()?;
     game.score()?;
     disable_raw_mode()?;
     Ok(())
