@@ -1,3 +1,4 @@
+use crossterm::event::KeyEvent;
 use crossterm::style::{Color, SetBackgroundColor, Stylize};
 use crossterm::{
     cursor,
@@ -87,28 +88,30 @@ impl Game {
         Ok(())
     }
 
+    fn is_correct_char_pressed(&mut self, event: KeyEvent) -> bool {
+        let current_char = self.text.chars().nth(self.index).unwrap();
+
+        if event.code == crossterm::event::KeyCode::Char(current_char) {
+            return true;
+        }
+        if (self.config.camel_case) {
+            return false;
+        }
+
+        return event.code == crossterm::event::KeyCode::Char(current_char.to_ascii_lowercase())
+            || event.code == crossterm::event::KeyCode::Char(current_char.to_ascii_uppercase());
+    }
+
     fn print_events(&mut self) -> crossterm::Result<()> {
+        self.print_text()?;
         loop {
-            self.print_text()?;
             match read()? {
                 Event::Key(event) => {
-                    if event.code == crossterm::event::KeyCode::Char('q') {
+                    if event.code == crossterm::event::KeyCode::Esc {
                         break;
                     }
 
-                    let current_char = self.text.chars().nth(self.index).unwrap();
-
-                    if event.code == crossterm::event::KeyCode::Char(current_char)
-                        || (!self.config.camel_case
-                            && event.code
-                                == crossterm::event::KeyCode::Char(
-                                    current_char.to_ascii_lowercase(),
-                                )
-                            || event.code
-                                == crossterm::event::KeyCode::Char(
-                                    current_char.to_ascii_uppercase(),
-                                ))
-                    {
+                    if self.is_correct_char_pressed(event) {
                         self.index += 1;
                         self.score.right();
                         self.audio.play("press");
@@ -117,12 +120,12 @@ impl Game {
                         self.audio.play("wrong");
                     }
 
+                    self.print_text()?;
+
                     if self.index == self.text.len() {
                         break;
                     }
                 }
-                Event::Mouse(event) => println!("{:?}", event),
-                Event::Resize(width, height) => println!("New size {}x{}", width, height),
                 _ => {}
             }
         }
@@ -179,7 +182,7 @@ impl Game {
         Ok(())
     }
 
-    fn score(&mut self) -> Result<()> {
+    fn final_score(&mut self) -> Result<()> {
         let end_time = Instant::now();
         let duration = end_time.duration_since(self.score.start_time);
         let per_seconds = (self.score.assertions as f64) / duration.as_secs_f64();
@@ -254,7 +257,7 @@ fn main() -> Result<()> {
     let stdin = io::stdin();
     let mut game = Game::new(stdin, stdout, GameConfig { camel_case: false });
     game.start()?;
-    game.score()?;
+    game.final_score()?;
     disable_raw_mode()?;
     Ok(())
 }
